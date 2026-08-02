@@ -6,8 +6,8 @@ const fs = require('fs');
 // CONFIGURATION LOADING
 // ============================================================
 let settings = {
-  ip: "62.141.62.26",
-  port: 42772,
+  ip: "163.5.201.11",
+  port: 10070,
   username: "t03cooper@gmail.com",
   offline: false,
   autoReconnect: true,
