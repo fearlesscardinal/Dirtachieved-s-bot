@@ -1,14 +1,14 @@
 {
   "name": "AFK Bot",
   "bot-account": {
-    "username": "Slobot00",
+    "username": "t03cooper@gmail.com@gmail.com",
     "password": "",
-    "type": "offline"
+    "type": "microsoft"
   },
   "server": {
     "ip": "dirtachieved.play.hosting",
-    "port": 14626,
-    "version": "",
+    "port": 19132,
+    "version": "1.20.1",
     "try-creative": false
   },
   "position": {
@@ -19,7 +19,7 @@
   },
   "utils": {
     "auto-auth": {
-      "enabled": true,
+      "enabled": false,
       "password": "chalol78"
     },
     "anti-afk": {
