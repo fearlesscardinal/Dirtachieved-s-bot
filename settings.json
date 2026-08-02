@@ -6,8 +6,8 @@
     "type": "microsoft"
   },
   "server": {
-    "ip": "dirtachieved.play.hosting",
-    "port": 14626,
+    "ip": "62.141.62.26",
+    "port": 42772,
     "version": "1.21.4",
     "try-creative": false
   },
