@@ -23,7 +23,6 @@ if (fs.existsSync('./settings.json')) {
   }
 }
 
-// Bot state tracking
 let botStatus = {
   connected: false,
   startTime: Date.now(),
@@ -56,7 +55,7 @@ app.get('/', (req, res) => {
         <div class="card">
           <h1>Bedrock AFK Bot Status</h1>
           <p class="status ${botStatus.connected ? 'online' : 'offline'}">
-            ${botStatus.connected ? '✓ CONNECTED & AFK ACTIVE' : '✗ DISCONNECTED'}
+            ${botStatus.connected ? '✓ CONNECTED & ACTIVE' : '✗ DISCONNECTED'}
           </p>
           <p>Target: <code>${settings.ip}:${settings.port}</code></p>
           <p>Reconnect Attempts: ${botStatus.reconnectCount}</p>
@@ -73,7 +72,7 @@ app.listen(PORT, '0.0.0.0', () => {
 });
 
 // ============================================================
-// BEDROCK BOT LOGIC WITH ANTI-AFK
+// BEDROCK BOT LOGIC WITH ADVANCED ANTI-AFK (CHAT & SWING)
 // ============================================================
 let client = null;
 let isConnecting = false;
@@ -114,21 +113,37 @@ function startBot() {
       isConnecting = false;
       console.log('[Bot] SUCCESS: Spawned in Bedrock world!');
 
-      // Start Anti-AFK Arm Swing & Packet Heartbeat every 25 seconds
+      // Advanced Anti-AFK: Arm Swing every 20s + Chat packet every 90s
+      let cycle = 0;
       afkInterval = setInterval(() => {
         if (client && botStatus.connected) {
           try {
-            // Send swing arm packet to prevent idle kick
+            // 1. Arm swing
             client.write('animate', {
               action_id: 'swing_arm',
               runtime_entity_id: client.entityId || 1n
             });
-            console.log('[Anti-AFK] Performed arm swing action (Server pinged)');
+
+            // 2. Chat command every ~90 seconds to force server packet activity
+            cycle++;
+            if (cycle % 4 === 0) {
+              client.queue('text', {
+                type: 'chat',
+                needs_translation: false,
+                source_name: client.username,
+                xuid: '',
+                platform_chat_id: '',
+                message: '/help'
+              });
+              console.log('[Anti-AFK] Sent /help command to force player activity');
+            } else {
+              console.log('[Anti-AFK] Performed arm swing');
+            }
           } catch (err) {
             // Ignore minor packet write errors
           }
         }
-      }, 25000);
+      }, 22000);
     });
 
     client.on('join', () => {
