@@ -20,7 +20,7 @@ if (fs.existsSync('./settings.json')) {
 
 let botStatus = { connected: false, reconnectCount: 0 };
 
-// 1. Keep-Alive Web Dashboard for Render
+// 1. Keep-Alive Web Dashboard
 const app = express();
 const PORT = process.env.PORT || 10000;
 app.get('/', (req, res) => res.send('Bedrock AFK Bot Online'));
@@ -53,11 +53,9 @@ function startBot() {
       profilesFolder: './.mc_profiles'
     });
 
-    // Capture position assigned by server (never hardcode)
     client.on('start_game', (packet) => {
       if (packet && packet.player_position) {
         currentPos = packet.player_position;
-        console.log(`[Bot] Server assigned position: X=${currentPos.x}, Y=${currentPos.y}, Z=${currentPos.z}`);
       }
     });
 
@@ -69,13 +67,13 @@ function startBot() {
 
     client.on('spawn', () => {
       botStatus.connected = true;
-      console.log('[Bot] SUCCESS: Spawned in world! Dynamic heartbeat started.');
+      console.log('[Bot] SUCCESS: Spawned in world! Active 1.5s heartbeat started.');
 
       let tick = 0;
+      // Fast 1.5s heartbeat to overcome server lag spikes
       heartbeatTimer = setInterval(() => {
         if (client && botStatus.connected) {
           try {
-            // Only send movement if server assigned a valid position
             if (currentPos) {
               client.write('move_player', {
                 runtime_id: client.entityId || 1n,
@@ -92,15 +90,13 @@ function startBot() {
               });
             }
 
-            // Arm swing packet
             client.write('animate', {
               action_id: 'swing_arm',
               runtime_entity_id: client.entityId || 1n
             });
 
-            // Chat command every ~60s
             tick++;
-            if (tick % 15 === 0) {
+            if (tick % 30 === 0) {
               client.queue('text', {
                 type: 'chat',
                 needs_translation: false,
@@ -109,13 +105,10 @@ function startBot() {
                 platform_chat_id: '',
                 message: '/help'
               });
-              console.log('[Heartbeat] Sent /help command to server');
-            } else {
-              console.log('[Heartbeat] Sent rotation & arm swing packet');
             }
           } catch (e) {}
         }
-      }, 4000);
+      }, 1500);
     });
 
     client.on('join', () => {
