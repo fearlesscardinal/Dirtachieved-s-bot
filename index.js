@@ -20,28 +20,22 @@ if (fs.existsSync('./settings.json')) {
 
 let botStatus = { connected: false, reconnectCount: 0 };
 
-// 1. Keep-Alive Web Dashboard
+// 1. Keep-Alive Web Dashboard for Render
 const app = express();
 const PORT = process.env.PORT || 10000;
 app.get('/', (req, res) => res.send('Bedrock AFK Bot Online'));
 app.listen(PORT, '0.0.0.0', () => console.log(`[Server] Web dashboard running on port ${PORT}`));
 
-// 2. Bedrock Bot Engine
+// 2. Pure Bedrock Client (No Corrupted Packets)
 let client = null;
-let heartbeatTimer = null;
-let currentPos = null;
 
 function startBot() {
   if (client) {
     try { client.close(); } catch (e) {}
     client = null;
   }
-  if (heartbeatTimer) {
-    clearInterval(heartbeatTimer);
-    heartbeatTimer = null;
-  }
 
-  console.log(`[Bot] Connecting to ${settings.ip}:${settings.port}...`);
+  console.log(`[Bot] Connecting cleanly to ${settings.ip}:${settings.port}...`);
 
   try {
     client = bedrock.createClient({
@@ -53,62 +47,9 @@ function startBot() {
       profilesFolder: './.mc_profiles'
     });
 
-    client.on('start_game', (packet) => {
-      if (packet && packet.player_position) {
-        currentPos = packet.player_position;
-      }
-    });
-
-    client.on('move_player', (packet) => {
-      if (packet && packet.position) {
-        currentPos = packet.position;
-      }
-    });
-
     client.on('spawn', () => {
       botStatus.connected = true;
-      console.log('[Bot] SUCCESS: Spawned in world! Active 1.5s heartbeat started.');
-
-      let tick = 0;
-      // Fast 1.5s heartbeat to overcome server lag spikes
-      heartbeatTimer = setInterval(() => {
-        if (client && botStatus.connected) {
-          try {
-            if (currentPos) {
-              client.write('move_player', {
-                runtime_id: client.entityId || 1n,
-                position: currentPos,
-                pitch: 0,
-                yaw: (tick * 15) % 360,
-                head_yaw: (tick * 15) % 360,
-                mode: 'normal',
-                on_ground: true,
-                ridden_runtime_id: 0n,
-                teleport_cause: 'unknown',
-                teleport_item: 0,
-                tick: BigInt(tick)
-              });
-            }
-
-            client.write('animate', {
-              action_id: 'swing_arm',
-              runtime_entity_id: client.entityId || 1n
-            });
-
-            tick++;
-            if (tick % 30 === 0) {
-              client.queue('text', {
-                type: 'chat',
-                needs_translation: false,
-                source_name: client.username,
-                xuid: '',
-                platform_chat_id: '',
-                message: '/help'
-              });
-            }
-          } catch (e) {}
-        }
-      }, 1500);
+      console.log('[Bot] SUCCESS: Spawned in Bedrock world! Connected cleanly without packet spam.');
     });
 
     client.on('join', () => {
@@ -124,7 +65,6 @@ function startBot() {
 
     client.on('close', (reason) => {
       botStatus.connected = false;
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
       console.log(`[Bot] Disconnected: ${reason || 'Server closed connection'}`);
 
       if (settings.autoReconnect) {
@@ -136,12 +76,10 @@ function startBot() {
 
     client.on('error', (err) => {
       botStatus.connected = false;
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
       console.log('[Bot Error]', err.message || err);
     });
 
   } catch (err) {
-    if (heartbeatTimer) clearInterval(heartbeatTimer);
     if (settings.autoReconnect) setTimeout(startBot, settings.reconnectDelayMs);
   }
 }
