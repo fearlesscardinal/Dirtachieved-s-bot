@@ -7,7 +7,7 @@ const fs = require('fs');
 // ============================================================
 let settings = {
   ip: "163.5.201.11",
-  port: 12729,
+  port: 10070,
   username: "t03cooper@gmail.com",
   offline: false,
   autoReconnect: true,
