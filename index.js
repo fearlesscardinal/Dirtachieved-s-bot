@@ -15,14 +15,12 @@ let settings = {
 if (fs.existsSync('./settings.json')) {
   try {
     settings = { ...settings, ...JSON.parse(fs.readFileSync('./settings.json', 'utf8')) };
-  } catch (err) {
-    console.log('[Config] Error reading settings.json:', err.message);
-  }
+  } catch (err) {}
 }
 
 let botStatus = { connected: false, reconnectCount: 0 };
 
-// 1. Keep-Alive Web Dashboard for Render
+// 1. Keep-Alive Web Dashboard
 const app = express();
 const PORT = process.env.PORT || 10000;
 app.get('/', (req, res) => res.send('Bedrock AFK Bot Online'));
@@ -55,7 +53,7 @@ function startBot() {
       port: Number(settings.port),
       username: settings.username,
       offline: settings.offline,
-      skipPing: true, // <--- PREVENTS RAKNET PING TIMEOUTS
+      skipPing: true,
       profilesFolder: './.mc_profiles'
     });
 
@@ -66,11 +64,11 @@ function startBot() {
       let tick = 0;
       let botPos = { x: -21.5, y: 69.0, z: 22.5 };
 
-      // Active Heartbeat every 3 seconds to keep Geyser connection alive
+      // Active Heartbeat every 3 seconds
       heartbeatTimer = setInterval(() => {
         if (client && botStatus.connected) {
           try {
-            // 1. Send position movement packet (signals active player physics to Geyser)
+            // 1. Send movement
             client.write('move_player', {
               runtime_id: client.entityId || 1n,
               position: botPos,
@@ -85,13 +83,13 @@ function startBot() {
               tick: BigInt(tick)
             });
 
-            // 2. Send arm swing
+            // 2. Arm swing
             client.write('animate', {
               action_id: 'swing_arm',
               runtime_entity_id: client.entityId || 1n
             });
 
-            // 3. Send /help command every ~45 seconds
+            // 3. Chat command every ~45 seconds
             tick++;
             if (tick % 15 === 0) {
               client.queue('text', {
@@ -104,13 +102,22 @@ function startBot() {
               });
               console.log('[Heartbeat] Sent /help command to server');
             } else {
-              console.log('[Heartbeat] Sent active position & rotation packet to Geyser');
+              console.log('[Heartbeat] Sent active position & rotation packet');
             }
-          } catch (e) {
-            // Suppress minor packet errors
-          }
+          } catch (e) {}
         }
       }, 3000);
+    });
+
+    // AUTO-RESPAWN IF KILLED BY MOBS
+    client.on('death', () => {
+      console.log('[Bot] Player died! Sending auto-respawn request...');
+      try {
+        client.write('respawn', {
+          state: 1,
+          runtime_entity_id: client.entityId || 1n
+        });
+      } catch (e) {}
     });
 
     client.on('join', () => {
