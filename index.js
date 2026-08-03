@@ -26,7 +26,7 @@ const PORT = process.env.PORT || 10000;
 app.get('/', (req, res) => res.send('Bedrock AFK Bot Online'));
 app.listen(PORT, '0.0.0.0', () => console.log(`[Server] Web dashboard running on port ${PORT}`));
 
-// 2. Pure Bedrock Client (No Corrupted Packets)
+// 2. Complete Bedrock Client Handshake
 let client = null;
 
 function startBot() {
@@ -35,7 +35,7 @@ function startBot() {
     client = null;
   }
 
-  console.log(`[Bot] Connecting cleanly to ${settings.ip}:${settings.port}...`);
+  console.log(`[Bot] Connecting to ${settings.ip}:${settings.port}...`);
 
   try {
     client = bedrock.createClient({
@@ -47,9 +47,18 @@ function startBot() {
       profilesFolder: './.mc_profiles'
     });
 
+    // CRITICAL: Complete Geyser's handshake when start_game fires
+    client.on('start_game', (packet) => {
+      console.log('[Bot] Received start_game! Completing Geyser handshake...');
+      try {
+        // Request chunk radius to finalize Geyser session
+        client.write('request_chunk_radius', { chunk_radius: 2 });
+      } catch (e) {}
+    });
+
     client.on('spawn', () => {
       botStatus.connected = true;
-      console.log('[Bot] SUCCESS: Spawned in Bedrock world! Connected cleanly without packet spam.');
+      console.log('[Bot] SUCCESS: Fully spawned and handshaked in Bedrock world!');
     });
 
     client.on('join', () => {
