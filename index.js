@@ -20,7 +20,7 @@ if (fs.existsSync('./settings.json')) {
 
 let botStatus = { connected: false, reconnectCount: 0 };
 
-// 1. Keep-Alive Web Dashboard
+// 1. Keep-Alive Web Dashboard for Render
 const app = express();
 const PORT = process.env.PORT || 10000;
 app.get('/', (req, res) => res.send('Bedrock AFK Bot Online'));
@@ -29,6 +29,7 @@ app.listen(PORT, '0.0.0.0', () => console.log(`[Server] Web dashboard running on
 // 2. Bedrock Bot Engine
 let client = null;
 let heartbeatTimer = null;
+let currentPos = null;
 
 function startBot() {
   if (client) {
@@ -40,12 +41,7 @@ function startBot() {
     heartbeatTimer = null;
   }
 
-  console.log('==================================================');
-  console.log('    Minecraft Bedrock AFK Bot - Render Edition');
-  console.log('==================================================');
-  console.log(` Target Server : ${settings.ip}:${settings.port}`);
-  console.log(` Auth Mode     : ${settings.offline ? 'Offline Mode' : 'Microsoft / Xbox'}`);
-  console.log('==================================================');
+  console.log(`[Bot] Connecting to ${settings.ip}:${settings.port}...`);
 
   try {
     client = bedrock.createClient({
@@ -57,39 +53,52 @@ function startBot() {
       profilesFolder: './.mc_profiles'
     });
 
+    // Capture position assigned by server (never hardcode)
+    client.on('start_game', (packet) => {
+      if (packet && packet.player_position) {
+        currentPos = packet.player_position;
+        console.log(`[Bot] Server assigned position: X=${currentPos.x}, Y=${currentPos.y}, Z=${currentPos.z}`);
+      }
+    });
+
+    client.on('move_player', (packet) => {
+      if (packet && packet.position) {
+        currentPos = packet.position;
+      }
+    });
+
     client.on('spawn', () => {
       botStatus.connected = true;
-      console.log('[Bot] SUCCESS: Spawned in world! Active movement heartbeat started.');
+      console.log('[Bot] SUCCESS: Spawned in world! Dynamic heartbeat started.');
 
       let tick = 0;
-      let botPos = { x: -21.5, y: 69.0, z: 22.5 };
-
-      // Active Heartbeat every 3 seconds
       heartbeatTimer = setInterval(() => {
         if (client && botStatus.connected) {
           try {
-            // 1. Send movement
-            client.write('move_player', {
-              runtime_id: client.entityId || 1n,
-              position: botPos,
-              pitch: 0,
-              yaw: (tick * 10) % 360,
-              head_yaw: (tick * 10) % 360,
-              mode: 'normal',
-              on_ground: true,
-              ridden_runtime_id: 0n,
-              teleport_cause: 'unknown',
-              teleport_item: 0,
-              tick: BigInt(tick)
-            });
+            // Only send movement if server assigned a valid position
+            if (currentPos) {
+              client.write('move_player', {
+                runtime_id: client.entityId || 1n,
+                position: currentPos,
+                pitch: 0,
+                yaw: (tick * 15) % 360,
+                head_yaw: (tick * 15) % 360,
+                mode: 'normal',
+                on_ground: true,
+                ridden_runtime_id: 0n,
+                teleport_cause: 'unknown',
+                teleport_item: 0,
+                tick: BigInt(tick)
+              });
+            }
 
-            // 2. Arm swing
+            // Arm swing packet
             client.write('animate', {
               action_id: 'swing_arm',
               runtime_entity_id: client.entityId || 1n
             });
 
-            // 3. Chat command every ~45 seconds
+            // Chat command every ~60s
             tick++;
             if (tick % 15 === 0) {
               client.queue('text', {
@@ -102,22 +111,11 @@ function startBot() {
               });
               console.log('[Heartbeat] Sent /help command to server');
             } else {
-              console.log('[Heartbeat] Sent active position & rotation packet');
+              console.log('[Heartbeat] Sent rotation & arm swing packet');
             }
           } catch (e) {}
         }
-      }, 3000);
-    });
-
-    // AUTO-RESPAWN IF KILLED BY MOBS
-    client.on('death', () => {
-      console.log('[Bot] Player died! Sending auto-respawn request...');
-      try {
-        client.write('respawn', {
-          state: 1,
-          runtime_entity_id: client.entityId || 1n
-        });
-      } catch (e) {}
+      }, 4000);
     });
 
     client.on('join', () => {
@@ -151,10 +149,7 @@ function startBot() {
 
   } catch (err) {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
-    console.log('[Fatal Error]', err.message);
-    if (settings.autoReconnect) {
-      setTimeout(startBot, settings.reconnectDelayMs);
-    }
+    if (settings.autoReconnect) setTimeout(startBot, settings.reconnectDelayMs);
   }
 }
 
