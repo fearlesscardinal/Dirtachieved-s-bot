@@ -8,7 +8,7 @@ const fs = require('fs');
 let settings = {
   ip: "163.5.201.11",
   port: 10070,
-  username: "t03cooper@gmail.com",
+  username: "YOUR_MICROSOFT_EMAIL@gmail.com",
   offline: false,
   autoReconnect: true,
   reconnectDelayMs: 15000
@@ -16,22 +16,20 @@ let settings = {
 
 if (fs.existsSync('./settings.json')) {
   try {
-    const raw = fs.readFileSync('./settings.json', 'utf8');
-    settings = { ...settings, ...JSON.parse(raw) };
+    settings = { ...settings, ...JSON.parse(fs.readFileSync('./settings.json', 'utf8')) };
   } catch (err) {
-    console.log('[Config] Error parsing settings.json, using defaults:', err.message);
+    console.log('[Config] Error reading settings.json:', err.message);
   }
 }
 
 let botStatus = {
   connected: false,
-  startTime: Date.now(),
   reconnectCount: 0,
-  lastError: null
+  startTime: Date.now()
 };
 
 // ============================================================
-// KEEP-ALIVE WEB DASHBOARD (FOR RENDER)
+// EXPRESS WEB DASHBOARD (FOR RENDER / UPTIMEROBOT)
 // ============================================================
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -46,19 +44,18 @@ app.get('/', (req, res) => {
         <style>
           body { font-family: sans-serif; background: #0d1117; color: #e6edf3; padding: 40px; text-align: center; }
           .card { background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 24px; max-width: 400px; margin: 0 auto; }
-          .status { font-weight: bold; font-size: 20px; }
-          .online { color: #3fb950; }
-          .offline { color: #f85149; }
+          .online { color: #3fb950; font-weight: bold; }
+          .offline { color: #f85149; font-weight: bold; }
         </style>
       </head>
       <body>
         <div class="card">
           <h1>Bedrock AFK Bot Status</h1>
-          <p class="status ${botStatus.connected ? 'online' : 'offline'}">
+          <p class="${botStatus.connected ? 'online' : 'offline'}">
             ${botStatus.connected ? '✓ CONNECTED & ACTIVE' : '✗ DISCONNECTED'}
           </p>
           <p>Target: <code>${settings.ip}:${settings.port}</code></p>
-          <p>Reconnect Attempts: ${botStatus.reconnectCount}</p>
+          <p>Reconnects: ${botStatus.reconnectCount}</p>
         </div>
       </body>
     </html>
@@ -68,36 +65,31 @@ app.get('/', (req, res) => {
 app.get('/ping', (req, res) => res.send('pong'));
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Server] HTTP Keep-alive dashboard started on port ${PORT}`);
+  console.log(`[Server] Web dashboard running on port ${PORT}`);
 });
 
 // ============================================================
-// BEDROCK BOT LOGIC WITH ADVANCED ANTI-AFK (CHAT & SWING)
+// BEDROCK BOT WITH ADVANCED KEEP-ALIVE & ANTI-KICK HEARTBEAT
 // ============================================================
 let client = null;
-let isConnecting = false;
-let afkInterval = null;
+let heartbeatTimer = null;
 
 function startBot() {
-  if (isConnecting) return;
-  isConnecting = true;
+  if (client) {
+    try { client.close(); } catch (e) {}
+    client = null;
+  }
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
 
   console.log('==================================================');
   console.log('    Minecraft Bedrock AFK Bot - Render Edition');
   console.log('==================================================');
   console.log(` Target Server : ${settings.ip}:${settings.port}`);
   console.log(` Auth Mode     : ${settings.offline ? 'Offline Mode' : 'Microsoft / Xbox'}`);
-  console.log(` Auto Reconnect: ${settings.autoReconnect}`);
   console.log('==================================================');
-
-  if (client) {
-    try { client.close(); } catch (e) {}
-    client = null;
-  }
-  if (afkInterval) {
-    clearInterval(afkInterval);
-    afkInterval = null;
-  }
 
   try {
     client = bedrock.createClient({
@@ -110,23 +102,22 @@ function startBot() {
 
     client.on('spawn', () => {
       botStatus.connected = true;
-      isConnecting = false;
-      console.log('[Bot] SUCCESS: Spawned in Bedrock world!');
+      console.log('[Bot] SUCCESS: Spawned in world! Active keep-alive heartbeat started.');
 
-      // Advanced Anti-AFK: Arm Swing every 20s + Chat packet every 90s
-      let cycle = 0;
-      afkInterval = setInterval(() => {
+      // Active Heartbeat: Swing arm every 12s, send /help command every 60s
+      let tick = 0;
+      heartbeatTimer = setInterval(() => {
         if (client && botStatus.connected) {
           try {
-            // 1. Arm swing
+            // 1. Arm swing packet
             client.write('animate', {
               action_id: 'swing_arm',
               runtime_entity_id: client.entityId || 1n
             });
 
-            // 2. Chat command every ~90 seconds to force server packet activity
-            cycle++;
-            if (cycle % 4 === 0) {
+            // 2. Send active command packet every ~60 seconds to force player activity
+            tick++;
+            if (tick % 5 === 0) {
               client.queue('text', {
                 type: 'chat',
                 needs_translation: false,
@@ -135,20 +126,19 @@ function startBot() {
                 platform_chat_id: '',
                 message: '/help'
               });
-              console.log('[Anti-AFK] Sent /help command to force player activity');
+              console.log('[Heartbeat] Sent active chat command /help to server');
             } else {
-              console.log('[Anti-AFK] Performed arm swing');
+              console.log('[Heartbeat] Sent active arm swing packet to Geyser');
             }
           } catch (err) {
-            // Ignore minor packet write errors
+            // Suppress minor packet write errors
           }
         }
-      }, 22000);
+      }, 12000);
     });
 
     client.on('join', () => {
       botStatus.connected = true;
-      isConnecting = false;
       console.log('[Bot] Joined server successfully!');
     });
 
@@ -160,10 +150,8 @@ function startBot() {
 
     client.on('close', (reason) => {
       botStatus.connected = false;
-      isConnecting = false;
-      if (afkInterval) clearInterval(afkInterval);
-
-      console.log(`[Bot] Connection closed: ${reason || 'Server closed socket'}`);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      console.log(`[Bot] Disconnected: ${reason || 'Server closed connection'}`);
 
       if (settings.autoReconnect) {
         botStatus.reconnectCount++;
@@ -174,15 +162,13 @@ function startBot() {
 
     client.on('error', (err) => {
       botStatus.connected = false;
-      if (afkInterval) clearInterval(afkInterval);
-      botStatus.lastError = err.message || String(err);
-      console.log('[Bot Error]', botStatus.lastError);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      console.log('[Bot Error]', err.message || err);
     });
 
   } catch (err) {
-    isConnecting = false;
-    if (afkInterval) clearInterval(afkInterval);
-    console.log('[Bot Fatal Error]', err.message);
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    console.log('[Fatal Error]', err.message);
     if (settings.autoReconnect) {
       setTimeout(startBot, settings.reconnectDelayMs);
     }
