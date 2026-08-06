@@ -4,8 +4,8 @@ const fs = require('fs');
 
 // Load settings
 let settings = {
-  ip: "us.freegamehost.xyz",
-  port: 26573,
+  ip: "dirtachieved.seedloaf.gg",
+  port: 51765,
   username: "t03cooper@gmail.com",
   offline: false,
   autoReconnect: true,
