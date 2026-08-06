@@ -4,8 +4,8 @@ const fs = require('fs');
 
 // Load settings
 let settings = {
-  ip: "163.5.201.11",
-  port: 10070,
+  ip: "us.freegamehost.xyz",
+  port: 26573,
   username: "t03cooper@gmail.com",
   offline: false,
   autoReconnect: true,
