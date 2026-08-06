@@ -5,7 +5,7 @@ const fs = require('fs');
 // Load settings
 let settings = {
   ip: "dirtachieved.seedloaf.gg",
-  port: 51765,
+  port: 50828,
   username: "t03cooper@gmail.com",
   offline: false,
   autoReconnect: true,
