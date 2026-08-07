@@ -5,7 +5,7 @@ const fs = require('fs');
 // Load settings
 let settings = {
   ip: "dirtachieved.seedloaf.gg",
-  port: 50828,
+  port: 19132,
   username: "t03cooper@gmail.com",
   offline: false,
   autoReconnect: true,
@@ -24,23 +24,43 @@ let botStatus = { connected: false, reconnectCount: 0 };
 const app = express();
 const PORT = process.env.PORT || 10000;
 app.get('/', (req, res) => res.send('Bedrock AFK Bot Online'));
-app.listen(PORT, '0.0.0.0', () => console.log(`[Server] Web server running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`[Server] Web dashboard running on port ${PORT}`));
 
-// 2. Bedrock Engine with PlayerAuthInput Stream
+// 2. Immortal Reconnect Manager
 let client = null;
-let authInputTimer = null;
-let currentPos = { x: -21.5, y: 69.0, z: 22.5 };
+let afkInterval = null;
+let currentPos = { x: 0, y: 70, z: 0 };
 let clientTick = 0n;
+let isReconnecting = false;
 
-function startBot() {
+function scheduleReconnect() {
+  if (isReconnecting) return;
+  isReconnecting = true;
+  botStatus.connected = false;
+
+  if (afkInterval) {
+    clearInterval(afkInterval);
+    afkInterval = null;
+  }
+
   if (client) {
     try { client.close(); } catch (e) {}
     client = null;
   }
-  if (authInputTimer) {
-    clearInterval(authInputTimer);
-    authInputTimer = null;
-  }
+
+  botStatus.reconnectCount++;
+  const delay = settings.reconnectDelayMs || 15000;
+  console.log(`[Bot] Server offline or restarting... Will retry in ${delay / 1000}s (Attempt #${botStatus.reconnectCount})`);
+
+  setTimeout(() => {
+    isReconnecting = false;
+    startBot();
+  }, delay);
+}
+
+// 3. Bedrock Bot Engine
+function startBot() {
+  if (isReconnecting) return;
 
   console.log(`[Bot] Connecting to ${settings.ip}:${settings.port}...`);
 
@@ -54,7 +74,6 @@ function startBot() {
       profilesFolder: './.mc_profiles'
     });
 
-    // Capture server position updates
     client.on('start_game', (packet) => {
       if (packet && packet.player_position) {
         currentPos = packet.player_position;
@@ -72,21 +91,22 @@ function startBot() {
 
     client.on('spawn', () => {
       botStatus.connected = true;
-      console.log('[Bot] SUCCESS: Spawned in world! Starting PlayerAuthInput stream...');
+      botStatus.reconnectCount = 0;
+      console.log('[Bot] SUCCESS: Spawned in world! Immortal reconnect active.');
 
-      // CRITICAL: Send PlayerAuthInput packet every 500ms to reset Geyser's 30s timeout timer
-      authInputTimer = setInterval(() => {
+      let cycle = 0;
+      afkInterval = setInterval(() => {
         if (client && botStatus.connected) {
           try {
             clientTick++;
 
-            // 1. Send PlayerAuthInput (resets Geyser lastAuthInputTime)
+            // 1. Send PlayerAuthInput
             client.write('player_auth_input', {
               pitch: 0,
-              yaw: Number(clientTick % 360n),
+              yaw: Number((clientTick * 15n) % 360n),
               position: currentPos,
               move_vector: { x: 0, z: 0 },
-              head_yaw: Number(clientTick % 360n),
+              head_yaw: Number((clientTick * 15n) % 360n),
               input_data: 0n,
               input_mode: 'touch',
               play_mode: 'normal',
@@ -100,51 +120,47 @@ function startBot() {
               analogue_move_vector: { x: 0, z: 0 }
             });
 
-            // 2. Send Arm Swing
+            // 2. Arm Swing
             client.write('animate', {
               action_id: 'swing_arm',
               runtime_entity_id: client.entityId || 1n
             });
 
-          } catch (err) {
-            // Ignore minor packet write errors
-          }
+            // 3. Send /help command every 45 seconds (resets Seedloaf 5-min timer)
+            cycle++;
+            if (cycle % 9 === 0) {
+              client.queue('text', {
+                type: 'chat',
+                needs_translation: false,
+                source_name: client.username,
+                xuid: '',
+                platform_chat_id: '',
+                message: '/help'
+              });
+              console.log('[Anti-Idle] Sent /help command');
+            }
+          } catch (err) {}
         }
-      }, 500);
+      }, 5000);
     });
 
     client.on('join', () => {
       botStatus.connected = true;
-      console.log('[Bot] Joined server successfully!');
-    });
-
-    client.on('text', (packet) => {
-      if (packet && packet.message) {
-        console.log(`[Chat] ${packet.source_name || 'Server'}: ${packet.message}`);
-      }
     });
 
     client.on('close', (reason) => {
-      botStatus.connected = false;
-      if (authInputTimer) clearInterval(authInputTimer);
-      console.log(`[Bot] Disconnected: ${reason || 'Server closed connection'}`);
-
-      if (settings.autoReconnect) {
-        botStatus.reconnectCount++;
-        console.log(`[Bot] Reconnecting in ${settings.reconnectDelayMs / 1000}s... (Attempt #${botStatus.reconnectCount})`);
-        setTimeout(startBot, settings.reconnectDelayMs);
-      }
+      console.log(`[Bot] Disconnected: ${reason || 'Closed'}`);
+      if (settings.autoReconnect) scheduleReconnect();
     });
 
     client.on('error', (err) => {
-      botStatus.connected = false;
-      if (authInputTimer) clearInterval(authInputTimer);
       console.log('[Bot Error]', err.message || err);
+      if (settings.autoReconnect) scheduleReconnect();
     });
 
   } catch (err) {
-    if (authInputTimer) clearInterval(authInputTimer);
-    if (settings.autoReconnect) setTimeout(startBot, settings.reconnectDelayMs);
+    console.log('[Fatal Error]', err.message);
+    if (settings.autoReconnect) scheduleReconnect();
   }
 }
 
