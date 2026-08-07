@@ -1,7 +1,8 @@
 {
-  "ip": "dirtachieved.seedloaf.gg"
+  "ip": "dirtachieved.seedloaf.gg",
+  "port": 50828,
   "username": "t03cooper@gmail.com",
   "offline": false,
   "autoReconnect": true,
-  "reconnectDelayMs": 15000
+  "reconnectDelayMs": 5000
 }
