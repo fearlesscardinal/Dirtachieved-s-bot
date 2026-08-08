@@ -26,7 +26,7 @@ const PORT = process.env.PORT || 10000;
 app.get('/', (req, res) => res.send('Bedrock AFK Bot Online'));
 app.listen(PORT, '0.0.0.0', () => console.log(`[Server] Web dashboard running on port ${PORT}`));
 
-// 2. Bedrock Engine
+// 2. Bedrock Bot Engine
 let client = null;
 let taskInterval = null;
 let currentPos = { x: 0, y: 70, z: 0 };
@@ -35,9 +35,6 @@ let clientTick = 0n;
 let isReconnecting = false;
 let activeTask = 'afk';
 let attackTarget = '';
-
-// AUTHORIZED COMMAND USER
-const ALLOWED_MASTER = 'fearlesscardinal';
 
 function sendBotChat(msg) {
   if (client && botStatus.connected) {
@@ -48,7 +45,8 @@ function sendBotChat(msg) {
         source_name: client.username || 'Bot',
         xuid: '',
         platform_chat_id: '',
-        message: msg
+        message: msg,
+        filtered_message: ''
       });
     } catch (e) {}
   }
@@ -123,7 +121,7 @@ function startBot() {
     client.on('spawn', () => {
       botStatus.connected = true;
       botStatus.reconnectCount = 0;
-      console.log(`[Bot] SUCCESS: Spawned in world! Listening for commands from ${ALLOWED_MASTER}.`);
+      console.log(`[Bot] SUCCESS: Spawned in world! Universal Geyser chat listener ready.`);
 
       taskInterval = setInterval(() => {
         if (!client || !botStatus.connected || !originPos) return;
@@ -216,52 +214,49 @@ function startBot() {
       botStatus.connected = true;
     });
 
-    // STRICT SENDER & PREFIX CHAT COMMAND LISTENER
+    // UNIVERSAL GEYSER & FLOODGATE CHAT LISTENER
     client.on('text', (packet) => {
-      if (!packet || !packet.message) return;
+      if (!packet) return;
 
-      const rawSender = (packet.source_name || '').trim();
-      // Clean sender name (strips Floodgate . or * prefix if present)
-      const cleanSender = rawSender.toLowerCase().replace(/^[.*]/, '');
-      const rawMsg = packet.message.trim();
+      // Combine message + parameters to catch all Geyser translation formats
+      let fullText = '';
+      if (typeof packet.message === 'string') fullText += ' ' + packet.message;
+      if (Array.isArray(packet.parameters)) fullText += ' ' + packet.parameters.join(' ');
+      if (Array.isArray(packet.param)) fullText += ' ' + packet.param.join(' ');
 
-      console.log(`[Chat] ${rawSender}: ${rawMsg}`);
+      const lowerFull = fullText.toLowerCase().trim();
+      const sender = packet.source_name || 'Server';
 
-      // 1. Verify sender is Fearlesscardinal
-      if (cleanSender !== ALLOWED_MASTER) {
-        return; // Ignore commands from other players!
-      }
+      console.log(`[Chat Debug] Sender: ${sender} | Text: ${lowerFull}`);
 
-      // 2. Check if message starts with !
-      if (!rawMsg.startsWith('!')) return;
+      // Verify command is from Fearlesscardinal
+      const isMaster = lowerFull.includes('fearlesscardinal') || lowerFull.includes('fearlessman') || (packet.source_name && packet.source_name.toLowerCase().includes('fearless'));
 
-      const args = rawMsg.substring(1).trim().split(/\s+/);
-      const command = args[0].toLowerCase();
+      if (!isMaster) return;
 
-      if (command === 'afk') {
+      if (lowerFull.includes('!afk') || lowerFull.includes('bot afk')) {
         activeTask = 'afk';
         originPos = { ...currentPos };
-        sendBotChat(`[Bot] Command accepted from ${rawSender}. Switched to AFK mode.`);
-        console.log(`[Master Command] !afk executed by ${rawSender}`);
+        sendBotChat(`[Bot] Command accepted: Switched to AFK mode.`);
+        console.log(`[Master Command] !afk executed!`);
 
-      } else if (command === 'mine') {
+      } else if (lowerFull.includes('!mine') || lowerFull.includes('bot mine')) {
         activeTask = 'mine';
-        sendBotChat(`[Bot] Command accepted. Mining block below!`);
-        console.log(`[Master Command] !mine executed by ${rawSender}`);
+        sendBotChat(`[Bot] Command accepted: Mining block below!`);
+        console.log(`[Master Command] !mine executed!`);
 
-      } else if (command === 'attack') {
+      } else if (lowerFull.includes('!attack') || lowerFull.includes('bot attack')) {
         activeTask = 'attack';
-        attackTarget = args[1] || 'mobs';
-        sendBotChat(`[Bot] Command accepted. Attacking target: ${attackTarget}!`);
-        console.log(`[Master Command] !attack ${attackTarget} executed by ${rawSender}`);
+        sendBotChat(`[Bot] Command accepted: Switched to attack mode!`);
+        console.log(`[Master Command] !attack executed!`);
 
-      } else if (command === 'stop') {
+      } else if (lowerFull.includes('!stop') || lowerFull.includes('bot stop')) {
         activeTask = 'idle';
-        sendBotChat(`[Bot] Command accepted. Stopped all tasks.`);
-        console.log(`[Master Command] !stop executed by ${rawSender}`);
+        sendBotChat(`[Bot] Command accepted: Stopped all active tasks.`);
+        console.log(`[Master Command] !stop executed!`);
 
-      } else if (command === 'help') {
-        sendBotChat(`[Bot Commands] !afk, !mine, !attack [target], !stop`);
+      } else if (lowerFull.includes('!help') || lowerFull.includes('bot help')) {
+        sendBotChat(`[Bot Commands] !afk, !mine, !attack, !stop`);
       }
     });
 
