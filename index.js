@@ -2,7 +2,7 @@ const bedrock = require('bedrock-protocol');
 const express = require('express');
 const fs = require('fs');
 
-// 1. Load Settings with Fallback Defaults
+// Load settings
 let settings = {
   ip: "dirtachieved.seedloaf.gg",
   port: 50828,
@@ -14,41 +14,37 @@ let settings = {
 
 if (fs.existsSync('./settings.json')) {
   try {
-    const raw = fs.readFileSync('./settings.json', 'utf8');
-    settings = { ...settings, ...JSON.parse(raw) };
-  } catch (err) {
-    console.log('[Config] Error reading settings.json:', err.message);
-  }
+    settings = { ...settings, ...JSON.parse(fs.readFileSync('./settings.json', 'utf8')) };
+  } catch (err) {}
 }
 
 let botStatus = { connected: false, reconnectCount: 0 };
 
-// 2. Keep-Alive Web Dashboard (For Render / UptimeRobot)
+// 1. Keep-Alive Web Dashboard
 const app = express();
 const PORT = process.env.PORT || 10000;
-app.get('/', (req, res) => res.send('Bedrock AFK Bot Dashboard Online'));
-app.get('/ping', (req, res) => res.send('pong'));
+app.get('/', (req, res) => res.send('Bedrock AFK Bot Online'));
 app.listen(PORT, '0.0.0.0', () => console.log(`[Server] Web dashboard running on port ${PORT}`));
 
-// 3. Bot State & Master Definition
+// 2. Bedrock Engine with Gravity & Visual Tasks
 let client = null;
 let taskInterval = null;
 let currentPos = { x: 0, y: 70, z: 0 };
 let originPos = null;
 let clientTick = 0n;
 let isReconnecting = false;
-let activeTask = 'afk'; // State: 'afk', 'mine', 'attack', 'idle'
+let activeTask = 'afk';
 
 const ALLOWED_MASTER = 'fearlesscardinal';
 
-// Helper: Send Chat Packet to Server
+// Clean Chat Response Helper
 function sendBotChat(msg) {
   if (client && botStatus.connected) {
     try {
       client.queue('text', {
         type: 'chat',
         needs_translation: false,
-        source_name: client.username || 'Bot',
+        source_name: '',
         xuid: '',
         platform_chat_id: '',
         message: msg,
@@ -58,7 +54,6 @@ function sendBotChat(msg) {
   }
 }
 
-// 4. Immortal Reconnection Manager
 function scheduleReconnect() {
   if (isReconnecting) return;
   isReconnecting = true;
@@ -84,7 +79,6 @@ function scheduleReconnect() {
   }, delay);
 }
 
-// 5. Main Bot Engine
 function startBot() {
   if (isReconnecting) return;
 
@@ -105,11 +99,10 @@ function startBot() {
       port: Number(settings.port),
       username: settings.username,
       offline: settings.offline,
-      skipPing: true, // Prevents RakNet ping timeouts
+      skipPing: true,
       profilesFolder: './.mc_profiles'
     });
 
-    // Capture spawn & move packets to track bot location dynamically
     client.on('start_game', (packet) => {
       if (packet && packet.player_position) {
         currentPos = packet.player_position;
@@ -120,20 +113,24 @@ function startBot() {
       } catch (e) {}
     });
 
+    // Server-enforced Gravity & Position Sync
     client.on('move_player', (packet) => {
       if (packet && packet.position) {
         currentPos = packet.position;
-        if (!originPos) originPos = { ...currentPos };
+        if (originPos) {
+          originPos.y = packet.position.y; // Sync Y-height with server gravity
+        } else {
+          originPos = { ...currentPos };
+        }
       }
     });
 
-    // Active Task & Movement Loop
     client.on('spawn', () => {
       botStatus.connected = true;
       botStatus.reconnectCount = 0;
-      console.log(`[Bot] SUCCESS: Spawned in world! Active Task Engine Running.`);
+      console.log(`[Bot] SUCCESS: Spawned in world! Gravity & Command Engine Active.`);
 
-      // 500ms loop for fast visual updates
+      // 500ms Fast Task Loop
       taskInterval = setInterval(() => {
         if (!client || !botStatus.connected || !originPos) return;
 
@@ -142,11 +139,11 @@ function startBot() {
 
           let pitch = 0;
           let yaw = Number((clientTick * 30n) % 360n);
-          let pos = { ...currentPos };
+          let pos = { x: currentPos.x, y: currentPos.y, z: currentPos.z };
           let moveVec = { x: 0, z: 0 };
 
           if (activeTask === 'afk') {
-            // Walk 1 full block back and forth
+            // Walk 1 full block back and forth, keeping current Y height
             let step = (clientTick % 2n === 0n) ? 1.0 : -1.0;
             pos.x = originPos.x + step;
             moveVec.x = step;
@@ -172,7 +169,7 @@ function startBot() {
             });
 
           } else if (activeTask === 'mine') {
-            // Look 90 degrees straight down at the floor
+            // Face 90 degrees straight down at the block below feet
             pitch = 90;
             yaw = 0;
 
@@ -190,11 +187,25 @@ function startBot() {
               tick: clientTick
             });
 
-            // Send block breaking action
+            let blockBelow = {
+              x: Math.floor(currentPos.x),
+              y: Math.floor(currentPos.y - 1),
+              z: Math.floor(currentPos.z)
+            };
+
+            // Send Mining Sequence (Start & Crack block)
             client.write('player_action', {
               runtime_entity_id: client.entityId || 1n,
               action: 'start_break',
-              position: { x: Math.floor(currentPos.x), y: Math.floor(currentPos.y - 1), z: Math.floor(currentPos.z) },
+              position: blockBelow,
+              result_position: { x: 0, y: 0, z: 0 },
+              face: 1
+            });
+
+            client.write('player_action', {
+              runtime_entity_id: client.entityId || 1n,
+              action: 'crack_break',
+              position: blockBelow,
               result_position: { x: 0, y: 0, z: 0 },
               face: 1
             });
@@ -214,7 +225,7 @@ function startBot() {
             });
           }
 
-          // PlayerAuthInput stream for Geyser sync
+          // PlayerAuthInput for Geyser Sync & Gravity Update
           client.write('player_auth_input', {
             pitch: pitch,
             yaw: yaw,
@@ -242,11 +253,10 @@ function startBot() {
       botStatus.connected = true;
     });
 
-    // 6. Universal Geyser Translation Chat Listener
+    // Chat Command Listener
     client.on('text', (packet) => {
       if (!packet) return;
 
-      // Extract text from string messages or translation arrays
       let fullText = '';
       if (typeof packet.message === 'string') fullText += ' ' + packet.message;
       if (Array.isArray(packet.parameters)) fullText += ' ' + packet.parameters.join(' ');
@@ -257,16 +267,14 @@ function startBot() {
 
       console.log(`[Chat Debug] Sender: ${sender} | Text: ${lowerFull}`);
 
-      // Check if message is from Java account Fearlesscardinal
       const isMaster = lowerFull.includes('fearlesscardinal') || lowerFull.includes('fearlessman') || (packet.source_name && packet.source_name.toLowerCase().includes('fearless'));
 
       if (!isMaster) return;
 
-      // Match and execute commands
       if (lowerFull.includes('!afk') || lowerFull.includes('bot afk')) {
         activeTask = 'afk';
         originPos = { ...currentPos };
-        sendBotChat(`[Bot] Switched to 1-block AFK walking.`);
+        sendBotChat(`[Bot] Switched to AFK walking.`);
         console.log(`[Master Command] !afk executed!`);
 
       } else if (lowerFull.includes('!mine') || lowerFull.includes('bot mine')) {
